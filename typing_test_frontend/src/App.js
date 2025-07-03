@@ -5,50 +5,152 @@ import "./App.css";
 /**
  * Typing Test Main Component
  * Features:
- * - Typing test UI (random text)
+ * - Typing test UI (customizable random text)
  * - Timer functionality (60s default)
- * - Real-time WPM calculation
+ * - Real-time WPM and accuracy calculation
+ * - Option toggles: include/exclude punctuation, mixed casing, numbers
+ * - Letter-by-letter comparison, advance on space
  * - Result display (WPM, accuracy, stats)
  * - Restart/New Test option
  * Styling: Modern, minimal, light theme (primary: #4F8EF7, secondary: #282C34, accent: #FF9800)
  */
 const TEST_DURATION = 60; // seconds
-const TEST_TEXTS = [
-  "The quick brown fox jumps over the lazy dog.",
-  "React is a JavaScript library for building user interfaces.",
-  "Typing fast is a useful skill for programmers.",
-  "Practice makes perfect when learning new things.",
-  "Stay focused and keep improving your typing speed."
+
+const WORDS = [
+  "type",
+  "keyboard",
+  "speed",
+  "learn",
+  "focus",
+  "improve",
+  "react",
+  "modern",
+  "simple",
+  "quick",
+  "fox",
+  "dog",
+  "skill",
+  "library",
+  "makes",
+  "perfect",
+  "things",
+  "stay",
+  "keep",
+  "jumps",
+  "over",
+  "brown",
+  "lazy",
+  "test",
+  "code",
+  "web",
+  "best",
+  "makes",
+  "strong",
+  "light",
+  "time",
+  "great",
+  "fast",
+  "fun",
+  "demo",
+  "user",
+  "input",
+  "output",
+  "logic",
+  "stats",
+  "again",
 ];
+
+const PUNCTUATION = [".", ",", "!", "?", ";", ":"];
+
+const NUMBERS = ["1","2","3","4","5","6","7","8","9","0"];
 
 // PUBLIC_INTERFACE
 function App() {
-  // State for theme (still supports user toggle per template)
+  // Theme state (optional toggle)
   const [theme, setTheme] = useState("light");
 
-  // Core state for Typing Test
+  // Option Toggles
+  const [includePunctuation, setIncludePunctuation] = useState(false);
+  const [includeNumbers, setIncludeNumbers] = useState(false);
+  const [includeCasing, setIncludeCasing] = useState(false);
+
+  // Test State
   const [testStarted, setTestStarted] = useState(false);
   const [testFinished, setTestFinished] = useState(false);
 
-  // The test phrase
-  const [testText, setTestText] = useState("");
-  const [userInput, setUserInput] = useState("");
+  // Test data
+  const [testWords, setTestWords] = useState([]); // array of words (strings)
+  const [userInputs, setUserInputs] = useState([]); // array of strings, one per word
+  const [currentWordInput, setCurrentWordInput] = useState(""); // current word string
+  const [currentWordIdx, setCurrentWordIdx] = useState(0);
+  const [testText, setTestText] = useState(""); // full test string (for highlight display)
   const [timer, setTimer] = useState(TEST_DURATION);
   const [intervalId, setIntervalId] = useState(null);
 
-  // Performance stats
+  // Stats
   const [wpm, setWpm] = useState(0);
   const [accuracy, setAccuracy] = useState(0);
 
-  // Focus management
+  // Focus
   const inputRef = useRef(null);
 
-  // On mount: pick a random test text
-  useEffect(() => {
-    setTestText(TEST_TEXTS[Math.floor(Math.random() * TEST_TEXTS.length)]);
-  }, []);
+  // Word/phrase generator respecting toggles
+  // PUBLIC_INTERFACE
+  function generateTestWords(
+    { punctuation = false, numbers = false, casing = false, numWords = 32 } = {}
+  ) {
+    let pool = [...WORDS];
+    if (numbers) {
+      pool = pool.concat(NUMBERS.map((n) => n));
+    }
+    let arr = [];
+    for (let i = 0; i < numWords; ++i) {
+      let word = pool[Math.floor(Math.random() * pool.length)];
+      // Casing
+      if (casing && Math.random() > 0.5) {
+        // randomly uppercase first letter or whole word
+        if (Math.random() > 0.5)
+          word = word[0].toUpperCase() + word.slice(1);
+        else
+          word = word.toUpperCase();
+      }
+      // Optionally add punctuation (but only not on every word)
+      if (punctuation && Math.random() < 0.18) {
+        if (Math.random() < 0.7) {
+          // Attach at end
+          word = word + PUNCTUATION[Math.floor(Math.random() * PUNCTUATION.length)];
+        } else {
+          // Attach at front
+          word = PUNCTUATION[Math.floor(Math.random() * PUNCTUATION.length)] + word;
+        }
+      }
+      arr.push(word);
+    }
+    // Optionally join last word with period only for nicer finish if punctuation
+    if (punctuation && arr.length > 0 && Math.random() > 0.3) {
+      arr[arr.length-1] = arr[arr.length-1].replace(/[.,!?;:]*$/, "") + ".";
+    }
+    return arr;
+  }
 
-  // Timer countdown
+  // At mount & on option change & restart: generate new words
+  useEffect(() => {
+    setTestStarted(false);
+    setTestFinished(false);
+    setCurrentWordInput("");
+    setCurrentWordIdx(0);
+    setUserInputs([]);
+    setTimer(TEST_DURATION);
+    const generated = generateTestWords({
+      punctuation: includePunctuation,
+      numbers: includeNumbers,
+      casing: includeCasing,
+    });
+    setTestWords(generated);
+    setTestText(generated.join(" "));
+  }, [includePunctuation, includeNumbers, includeCasing]);
+
+  // Timer countdown logic
   useEffect(() => {
     if (testStarted && timer > 0 && !testFinished) {
       const id = setInterval(() => {
@@ -59,37 +161,46 @@ function App() {
     } else if (timer === 0 && testStarted) {
       finishTest();
     }
-    // eslint-disable-next-line
   }, [testStarted, timer, testFinished]);
 
-  // Recalculate stats on every input
+  // On any input or end, update stats
   useEffect(() => {
     if (testStarted || testFinished) {
       updateStats();
     }
     // eslint-disable-next-line
-  }, [userInput, timer, testStarted, testFinished]);
+  }, [userInputs, currentWordInput, timer, testStarted, testFinished]);
 
-  // Reset on new test
+  // Restart
+  // PUBLIC_INTERFACE
   const handleRestart = () => {
-    setTestText(TEST_TEXTS[Math.floor(Math.random() * TEST_TEXTS.length)]);
-    setUserInput("");
-    setTimer(TEST_DURATION);
     setTestStarted(false);
     setTestFinished(false);
+    setCurrentWordIdx(0);
+    setUserInputs([]);
+    setCurrentWordInput("");
+    setTimer(TEST_DURATION);
+    const generated = generateTestWords({
+      punctuation: includePunctuation,
+      numbers: includeNumbers,
+      casing: includeCasing,
+    });
+    setTestWords(generated);
+    setTestText(generated.join(" "));
     setWpm(0);
     setAccuracy(0);
-    // Focus input after a short delay (for DOM update)
     setTimeout(() => {
       if (inputRef.current) inputRef.current.focus();
     }, 150);
   };
 
-  // Start typing test
+  // PUBLIC_INTERFACE
   const handleStart = () => {
     setTestStarted(true);
     setTestFinished(false);
-    setUserInput("");
+    setCurrentWordIdx(0);
+    setUserInputs([]);
+    setCurrentWordInput("");
     setTimer(TEST_DURATION);
     setWpm(0);
     setAccuracy(0);
@@ -98,54 +209,157 @@ function App() {
     }, 100);
   };
 
-  // Typing event
+  // PUBLIC_INTERFACE
   const handleTyping = (e) => {
-    let value = e.target.value;
     if (!testStarted || testFinished) return;
-    if (value.length > testText.length) value = value.slice(0, testText.length);
-    setUserInput(value);
-    // If user finishes early
-    if (value.length === testText.length) {
-      finishTest();
+    let value = e.target.value;
+
+    // If space pressed, finalize the current word and advance
+    // We support user typing multi spaces by split
+    if (value.endsWith(" ")) {
+      const trimmed = value.trimEnd();
+      // Save current input so far as word entry
+      let nextInputs = [...userInputs];
+      nextInputs[currentWordIdx] = trimmed;
+      setUserInputs(nextInputs);
+
+      // Advance to next word if possible
+      if (currentWordIdx < testWords.length - 1) {
+        setCurrentWordIdx((idx) => idx + 1);
+        setCurrentWordInput("");
+      } else {
+        finishTest();
+      }
+      // forcibly clear input value to next word
+      setTimeout(() => {
+        if (inputRef.current) inputRef.current.value = "";
+      }, 0);
+      return;
     }
+
+    // Otherwise just update the current word input (letter by letter)
+    setCurrentWordInput(value);
   };
 
-  // Finish test
-  const finishTest = () => {
+  // Called for controlled input value to keep sync
+  useEffect(() => {
+    if (!testStarted || testFinished) return;
+    if (inputRef.current && inputRef.current.value !== currentWordInput) {
+      inputRef.current.value = currentWordInput;
+    }
+  }, [currentWordInput, testStarted, testFinished]);
+
+  // When currentWordIdx changes, push new word input if necessary
+  useEffect(() => {
+    // If starting on a new word, ensure userInputs has correct length
+    if (userInputs.length < currentWordIdx) {
+      setUserInputs([...userInputs, ""]);
+    }
+  }, [currentWordIdx, userInputs]);
+
+  // // When user finishes typing the last word's last letter, mark as done
+  useEffect(() => {
+    if (!testStarted || testFinished) return;
+    if (
+      currentWordIdx === testWords.length - 1 &&
+      currentWordInput.length >= testWords[testWords.length - 1].length
+    ) {
+      // Save final word
+      let nextInputs = [...userInputs];
+      nextInputs[currentWordIdx] = currentWordInput;
+      setUserInputs(nextInputs);
+      finishTest();
+    }
+  }, [currentWordInput, currentWordIdx, testStarted, testFinished]);
+
+  // PUBLIC_INTERFACE
+  function finishTest() {
     setTestFinished(true);
     setTestStarted(false);
     setTimer((t) => t === 0 ? 0 : t); // freeze timer visually
     if (intervalId) clearInterval(intervalId);
     updateStats(true);
-  };
+  }
 
-  // Calculate stats
-  const updateStats = (final = false) => {
-    const wordsTyped = userInput.trim().split(/\s+/).filter(Boolean);
-    const numWords = wordsTyped.length;
-    const timeElapsed = TEST_DURATION - timer;
-    let minutes = final ? TEST_DURATION / 60 : timeElapsed > 0 ? timeElapsed / 60 : 1/60;
-
-    // Count correct characters vs total attempted
-    let correct = 0;
-    for (let i = 0; i < userInput.length; i++) {
-      if (userInput[i] === testText[i]) correct++;
-    }
-    const total = userInput.length;
-    setAccuracy(total > 0 ? Math.round((correct / total) * 100) : 0);
-
-    // WPM: Only count fully-correct words
+  // PUBLIC_INTERFACE
+  function updateStats(final = false) {
+    // To compute correctness, compare each word input to test word
+    let attemptCount = 0;
+    let correctChars = 0;
+    let totalChars = 0;
     let correctWords = 0;
-    const testWords = testText.split(/\s+/);
-    for (let i = 0; i < wordsTyped.length; i++) {
-      if (wordsTyped[i] === testWords[i]) correctWords++;
+
+    // Count up to latest completed word unless finished, then all
+    let entries = [...userInputs];
+    if (!final && (!testFinished)) {
+      // Only count current word if any input in progress
+      if (currentWordInput.length > 0) {
+        entries = [...userInputs];
+        entries[currentWordIdx] = currentWordInput;
+      }
     }
-    // During test: show current WPM; at end: use total time
-    let wpmComputed = correctWords / minutes;
-    setWpm(Math.round(wpmComputed));
+    // Compare
+    for (let i = 0; i < testWords.length; ++i) {
+      const refWord = testWords[i] || "";
+      const typed = entries[i] || "";
+      if (typed === "") continue;
+      attemptCount++;
+      // Check word
+      if (typed === refWord) correctWords++;
+      // Char-by-char accuracy
+      let wordCorrect = 0;
+      let chars = Math.max(typed.length, refWord.length);
+      for (let j = 0; j < chars; ++j) {
+        totalChars++;
+        if (typed[j] === refWord[j]) wordCorrect++;
+      }
+      correctChars += wordCorrect;
+    }
+
+    // Time in minutes
+    const timeElapsed = TEST_DURATION - timer;
+    const minutes = final ? TEST_DURATION / 60 : timeElapsed > 0 ? timeElapsed / 60 : 1 / 60;
+    // WPM (strict: only 100% matched words count)
+    let wpmValue = correctWords / minutes;
+    setWpm(Math.round(wpmValue));
+    // Accuracy
+    setAccuracy(totalChars > 0 ? Math.round((correctChars / totalChars) * 100) : 0);
+  }
+
+  // PUBLIC_INTERFACE
+  const toggleTheme = () => {
+    setTheme((prev) => prev === "light" ? "dark" : "light");
   };
 
-  // Styling: minimal layout with palette
+  // PUBLIC_INTERFACE
+  // Display with highlight: Each word, each char, highlight based on actual input for the word
+  function getHighlightedText() {
+    // For each word, check its input
+    let result = [];
+    for (let wi = 0; wi < testWords.length; ++wi) {
+      let word = testWords[wi];
+      let input = (wi < userInputs.length ? userInputs[wi] : (wi === currentWordIdx ? currentWordInput : "")) || "";
+      for (let ci = 0; ci < word.length; ++ci) {
+        let char = word[ci];
+        let style = {};
+        if (input.length > ci) {
+          style.backgroundColor = input[ci] === char ? "#B3E5FC" : "#FFCDD2";
+          style.color = input[ci] === char ? "#282C34" : "#C62828";
+          style.fontWeight = 500;
+        }
+        result.push(
+          <span key={`w${wi}-c${ci}`} style={style}>{char}</span>
+        );
+      }
+      // add word space, but don't highlight (or show a real space marker)
+      if (wi !== testWords.length - 1) {
+        result.push(<span key={`w${wi}-sp`} style={{ userSelect: "none" }}>{" "}</span>);
+      }
+    }
+    return result;
+  }
+
+  // Palette for minimal styling
   const palette = {
     "--primary": "#4F8EF7",
     "--secondary": "#282C34",
@@ -153,29 +367,72 @@ function App() {
     "--bg": "#fff",
     "--border": "#e9ecef",
     "--input-bg": "#f8f9fa",
-    "--input-border": "#cfd8dc"
+    "--input-border": "#cfd8dc",
   };
 
-  // PUBLIC_INTERFACE
-  const toggleTheme = () => {
-    setTheme((prev) => prev === "light" ? "dark" : "light");
-  };
-
-  // Highlight logic for live visual feedback on typing
-  const getHighlightedText = () => {
-    const chars = testText.split("");
-    return chars.map((char, idx) => {
-      let style = {};
-      if (idx < userInput.length) {
-        style.backgroundColor = userInput[idx] === char ? "#B3E5FC" : "#FFCDD2";
-        style.color = userInput[idx] === char ? palette["--secondary"] : "#C62828";
-        style.fontWeight = 500;
-      }
-      return (
-        <span key={idx} style={style}>{char}</span>
-      );
-    });
-  };
+  // Option toggles UI
+  function renderOptionsPanel() {
+    return (
+      <div style={{
+        display: "flex",
+        flexDirection: "row",
+        gap: 16,
+        marginBottom: 24,
+        alignItems: "center",
+        justifyContent: "flex-start",
+        flexWrap: "wrap"
+      }}>
+        <label style={{
+          display: "flex", alignItems: "center", gap: 7,
+          fontSize: 15, fontWeight: 500,
+          color: palette["--secondary"],
+          background: "#f8f9fa", padding: "6px 12px", borderRadius: 8,
+          cursor: "pointer"
+        }}>
+          <input
+            type="checkbox"
+            checked={includePunctuation}
+            onChange={() => setIncludePunctuation(v => !v)}
+            disabled={testStarted && !testFinished}
+            style={{ accentColor: palette["--accent"], marginRight: 2 }}
+          />
+          Punctuation
+        </label>
+        <label style={{
+          display: "flex", alignItems: "center", gap: 7,
+          fontSize: 15, fontWeight: 500,
+          color: palette["--secondary"],
+          background: "#f8f9fa", padding: "6px 12px", borderRadius: 8,
+          cursor: "pointer"
+        }}>
+          <input
+            type="checkbox"
+            checked={includeCasing}
+            onChange={() => setIncludeCasing(v => !v)}
+            disabled={testStarted && !testFinished}
+            style={{ accentColor: palette["--accent"], marginRight: 2 }}
+          />
+          Mixed Casing
+        </label>
+        <label style={{
+          display: "flex", alignItems: "center", gap: 7,
+          fontSize: 15, fontWeight: 500,
+          color: palette["--secondary"],
+          background: "#f8f9fa", padding: "6px 12px", borderRadius: 8,
+          cursor: "pointer"
+        }}>
+          <input
+            type="checkbox"
+            checked={includeNumbers}
+            onChange={() => setIncludeNumbers(v => !v)}
+            disabled={testStarted && !testFinished}
+            style={{ accentColor: palette["--accent"], marginRight: 2 }}
+          />
+          Numbers
+        </label>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -246,7 +503,8 @@ function App() {
           }}>
             ⏱ <span>{timer < 10 ? `0${timer}` : timer}s</span>
           </div>
-
+          {/* OPTIONS */}
+          {renderOptionsPanel()}
           {/* TEST PHRASE - highlight input */}
           <div className="test-paragraph"
             style={{
@@ -286,15 +544,16 @@ function App() {
             placeholder={
               testStarted ? "Type the text above..." : "Click Start to begin"
             }
-            value={userInput}
+            // value is controlled by setCurrentWordInput but userInputs as source of truth
+            defaultValue=""
             onChange={handleTyping}
-            onPaste={(e) => e.preventDefault()}
+            onPaste={e => e.preventDefault()}
             tabIndex={0}
             autoCorrect="off"
             autoComplete="off"
             spellCheck={false}
             aria-label="Start typing here"
-            maxLength={testText.length}
+            maxLength={testWords[currentWordIdx] ? testWords[currentWordIdx].length + 4 : 22}
           />
           {/* BUTTONS */}
           <div style={{
